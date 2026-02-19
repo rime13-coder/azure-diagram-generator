@@ -395,17 +395,23 @@ def _get_renderer(output_format: OutputFormat):
 
 def _upload_to_lucidchart(file_path: Path, title: str, config: Config) -> None:
     """Upload a generated .lucid file to Lucidchart."""
-    if not config.lucidchart_api_key:
+    has_oauth = config.lucidchart_client_id and config.lucidchart_client_secret
+    has_key = config.lucidchart_api_key
+
+    if not has_oauth and not has_key:
         console.print(
-            "[yellow]Lucidchart API key not configured. "
-            "Set LUCIDCHART_API_KEY in your .env file.[/yellow]"
+            "[yellow]Lucidchart credentials not configured. "
+            "Set LUCIDCHART_CLIENT_ID + LUCIDCHART_CLIENT_SECRET "
+            "(or LUCIDCHART_API_KEY) in your .env file.[/yellow]"
         )
         return
 
     from azure_diagrammer.renderers.lucidchart import LucidchartUploader
 
     uploader = LucidchartUploader(
-        api_key=config.lucidchart_api_key,
+        api_key=config.lucidchart_api_key or "",
+        client_id=config.lucidchart_client_id or "",
+        client_secret=config.lucidchart_client_secret or "",
         base_url=config.lucidchart_base_url,
     )
     try:

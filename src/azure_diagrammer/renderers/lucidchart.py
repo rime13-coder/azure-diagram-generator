@@ -29,6 +29,14 @@ from azure_diagrammer.renderers.base import BaseRenderer
 
 logger = logging.getLogger(__name__)
 
+_SAFE_ID_TABLE = str.maketrans({"/": "_", " ": "_", ":": "_", "(": "", ")": ""})
+
+
+def _sanitize_id(raw_id: str) -> str:
+    """Ensure ID is valid for Lucidchart (alphanumeric + -_.~ , max 36 chars)."""
+    clean = raw_id.translate(_SAFE_ID_TABLE)
+    return clean[:36]
+
 
 class LucidchartRenderer(BaseRenderer):
     """Renders architecture graphs as Lucidchart .lucid files."""
@@ -65,8 +73,6 @@ class LucidchartRenderer(BaseRenderer):
 
         return {
             "version": 1,
-            "type": "page",
-            "title": graph.project_name,
             "pages": pages,
         }
 
@@ -76,26 +82,37 @@ class LucidchartRenderer(BaseRenderer):
         lines = []
         containers = []
 
+        # Build a mapping from original IDs to sanitized IDs
+        id_map: dict[str, str] = {}
+        for group in page.groups:
+            id_map[group.id] = _sanitize_id(group.id)
+        for node in page.nodes:
+            id_map[node.id] = _sanitize_id(node.id)
+        for edge in page.edges:
+            id_map[edge.id] = _sanitize_id(edge.id)
+
         # Render groups as container shapes
         for group in page.groups:
-            containers.append(self._group_to_shape(group))
+            containers.append(self._group_to_shape(group, id_map))
 
         # Render nodes as shapes
         for node in page.nodes:
-            shapes.append(self._node_to_shape(node))
+            shapes.append(self._node_to_shape(node, id_map))
 
         # Render edges as lines
         for edge in page.edges:
-            lines.append(self._edge_to_line(edge))
+            lines.append(self._edge_to_line(edge, id_map))
 
         return {
-            "id": page.id,
+            "id": _sanitize_id(page.id),
             "title": page.title,
             "shapes": containers + shapes,
             "lines": lines,
         }
 
-    def _node_to_shape(self, node: DiagramNode) -> dict[str, Any]:
+    def _node_to_shape(
+        self, node: DiagramNode, id_map: dict[str, str]
+    ) -> dict[str, Any]:
         """Convert a DiagramNode to a Lucidchart shape."""
         meta = get_resource_meta(node.azure_resource_type)
 
@@ -107,7 +124,7 @@ class LucidchartRenderer(BaseRenderer):
         stroke_color = node.style.get("stroke", meta.stroke_color)
 
         shape: dict[str, Any] = {
-            "id": node.id,
+            "id": id_map.get(node.id, _sanitize_id(node.id)),
             "type": "rectangle",
             "boundingBox": {
                 "x": node.position.x,
@@ -117,11 +134,8 @@ class LucidchartRenderer(BaseRenderer):
             },
             "text": text,
             "style": {
-                "fill": fill_color,
-                "stroke": stroke_color,
-                "fontColor": "#FFFFFF",
-                "fontSize": 11,
-                "fontFamily": "Segoe UI",
+                "fill": {"type": "color", "color": fill_color},
+                "stroke": {"color": stroke_color, "width": 1, "style": "solid"},
                 "rounding": 4,
             },
             "customData": [
@@ -130,28 +144,29 @@ class LucidchartRenderer(BaseRenderer):
             ],
         }
 
-        # Add icon reference if available
-        if node.icon_path:
-            shape["image"] = {
-                "src": f"images/{Path(node.icon_path).name}",
-                "position": "top",
-                "size": {"w": 32, "h": 32},
-            }
-
         # Set parent container if grouped
         if node.group_id:
-            shape["containedBy"] = node.group_id
+            shape["containedBy"] = id_map.get(node.group_id, _sanitize_id(node.group_id))
 
         return shape
 
-    def _group_to_shape(self, group: DiagramGroup) -> dict[str, Any]:
+    def _group_to_shape(
+        self, group: DiagramGroup, id_map: dict[str, str]
+    ) -> dict[str, Any]:
         """Convert a DiagramGroup to a Lucidchart container shape."""
         fill_color = group.style.get("fill", "#F5F5F5")
         stroke_color = group.style.get("stroke", "#CCCCCC")
+        raw_dash = group.style.get("dash", "solid")
+        if raw_dash in ("solid", "dashed", "dotted"):
+            dash_style = raw_dash
+        elif raw_dash and raw_dash != "none":
+            dash_style = "dashed"
+        else:
+            dash_style = "solid"
 
-        return {
-            "id": group.id,
-            "type": "container",
+        shape: dict[str, Any] = {
+            "id": id_map.get(group.id, _sanitize_id(group.id)),
+            "type": "roundedRectangleContainer",
             "boundingBox": {
                 "x": group.bounding_box.x,
                 "y": group.bounding_box.y,
@@ -160,49 +175,59 @@ class LucidchartRenderer(BaseRenderer):
             },
             "text": group.name,
             "style": {
-                "fill": fill_color,
-                "stroke": stroke_color,
-                "fontColor": "#333333",
-                "fontSize": 13,
-                "fontFamily": "Segoe UI",
-                "fontWeight": "bold",
+                "fill": {"type": "color", "color": fill_color},
+                "stroke": {"color": stroke_color, "width": 1, "style": dash_style},
                 "rounding": 8,
-                "dashArray": "none",
             },
-            "containedBy": group.parent_id,
             "customData": [
                 {"key": "resourceId", "value": group.azure_resource_id},
                 {"key": "groupType", "value": group.group_type.value},
             ],
         }
 
-    def _edge_to_line(self, edge: DiagramEdge) -> dict[str, Any]:
+        if group.parent_id:
+            shape["containedBy"] = id_map.get(
+                group.parent_id, _sanitize_id(group.parent_id)
+            )
+
+        return shape
+
+    def _edge_to_line(
+        self, edge: DiagramEdge, id_map: dict[str, str]
+    ) -> dict[str, Any]:
         """Convert a DiagramEdge to a Lucidchart line."""
         end_style = "none" if edge.bidirectional else "arrow"
         start_style = "arrow" if edge.bidirectional else "none"
 
         stroke_color = edge.style.get("stroke", "#666666")
-        dash = edge.style.get("dash", "none")
+        raw_dash = edge.style.get("dash", "solid")
+        # Normalize to valid Lucidchart values: solid, dashed, dotted
+        if raw_dash in ("solid", "dashed", "dotted"):
+            dash = raw_dash
+        elif raw_dash and raw_dash != "none":
+            dash = "dashed"
+        else:
+            dash = "solid"
 
         line: dict[str, Any] = {
-            "id": edge.id,
+            "id": id_map.get(edge.id, _sanitize_id(edge.id)),
             "lineType": "elbow",
             "endpoint1": {
                 "type": "shapeEndpoint",
-                "shapeId": edge.source_id,
+                "shapeId": id_map.get(edge.source_id, _sanitize_id(edge.source_id)),
                 "style": start_style,
                 "position": {"x": 1, "y": 0.5},
             },
             "endpoint2": {
                 "type": "shapeEndpoint",
-                "shapeId": edge.target_id,
+                "shapeId": id_map.get(edge.target_id, _sanitize_id(edge.target_id)),
                 "style": end_style,
                 "position": {"x": 0, "y": 0.5},
             },
-            "style": {
-                "stroke": stroke_color,
-                "strokeWidth": 1.5,
-                "dashArray": dash,
+            "stroke": {
+                "color": stroke_color,
+                "width": 1,
+                "style": dash,
             },
         }
 
@@ -227,11 +252,145 @@ class LucidchartRenderer(BaseRenderer):
 
 
 class LucidchartUploader:
-    """Uploads .lucid files to Lucidchart via the Standard Import REST API."""
+    """Uploads .lucid files to Lucidchart via the Standard Import REST API.
 
-    def __init__(self, api_key: str, base_url: str = "https://api.lucid.co") -> None:
+    Supports:
+    - API key (simplest — generate at https://lucid.app/developer#/apikeys)
+    - OAuth2 authorization code flow (client_id + client_secret with browser login)
+    """
+
+    REDIRECT_PORT = 8497
+    REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
+
+    def __init__(
+        self,
+        api_key: str = "",
+        base_url: str = "https://api.lucid.co",
+        client_id: str = "",
+        client_secret: str = "",
+    ) -> None:
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self._access_token: str | None = None
+
+    def _get_access_token(self) -> str:
+        """Get an access token via API key or OAuth2 authorization code flow."""
+        if self._access_token:
+            return self._access_token
+
+        # If a direct API key is provided, use it as-is
+        if self.api_key and not self.client_id:
+            return self.api_key
+
+        # OAuth2 authorization code flow with local callback server
+        self._access_token = self._oauth2_authorize()
+        return self._access_token
+
+    def _oauth2_authorize(self) -> str:
+        """Run the OAuth2 authorization code flow with a local HTTP server."""
+        import secrets
+        import threading
+        import webbrowser
+        from http.server import HTTPServer, BaseHTTPRequestHandler
+        from urllib.parse import urlencode, urlparse, parse_qs
+
+        state = secrets.token_urlsafe(32)
+        auth_code_holder: dict[str, str | None] = {"code": None, "error": None}
+        server_ready = threading.Event()
+
+        class CallbackHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                parsed = urlparse(self.path)
+                params = parse_qs(parsed.query)
+
+                if params.get("error"):
+                    auth_code_holder["error"] = params["error"][0]
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/html")
+                    self.end_headers()
+                    error_desc = params.get("error_description", ["Unknown error"])[0]
+                    self.wfile.write(
+                        f"<h2>Authorization failed</h2><p>{error_desc}</p>".encode()
+                    )
+                elif params.get("code"):
+                    auth_code_holder["code"] = params["code"][0]
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html")
+                    self.end_headers()
+                    self.wfile.write(
+                        b"<h2>Authorization successful!</h2>"
+                        b"<p>You can close this window and return to the terminal.</p>"
+                    )
+                else:
+                    self.send_response(400)
+                    self.send_header("Content-Type", "text/html")
+                    self.end_headers()
+                    self.wfile.write(b"<h2>Missing authorization code</h2>")
+
+            def log_message(self, format, *args):
+                pass  # Suppress request logs
+
+        # Start local callback server
+        server = HTTPServer(("127.0.0.1", self.REDIRECT_PORT), CallbackHandler)
+        server.timeout = 120  # 2-minute timeout
+
+        def serve():
+            server_ready.set()
+            server.handle_request()  # Handle a single request then stop
+
+        server_thread = threading.Thread(target=serve, daemon=True)
+        server_thread.start()
+        server_ready.wait()
+
+        # Build authorization URL and open browser
+        auth_params = urlencode({
+            "client_id": self.client_id,
+            "redirect_uri": self.REDIRECT_URI,
+            "scope": "lucidchart.document.content",
+            "response_type": "code",
+            "state": state,
+        })
+        auth_url = f"https://lucid.app/oauth2/authorize?{auth_params}"
+
+        logger.info("Opening browser for Lucidchart authorization...")
+        print(f"\nOpening browser for Lucidchart login...")
+        print(f"If the browser doesn't open, visit:\n{auth_url}\n")
+        webbrowser.open(auth_url)
+
+        # Wait for the callback
+        server_thread.join(timeout=120)
+        server.server_close()
+
+        if auth_code_holder["error"]:
+            raise RuntimeError(
+                f"Lucidchart authorization failed: {auth_code_holder['error']}"
+            )
+        if not auth_code_holder["code"]:
+            raise RuntimeError(
+                "Lucidchart authorization timed out. No authorization code received."
+            )
+
+        # Exchange authorization code for access token
+        token_url = f"{self.base_url}/oauth2/token"
+        response = requests.post(
+            token_url,
+            data={
+                "grant_type": "authorization_code",
+                "code": auth_code_holder["code"],
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "redirect_uri": self.REDIRECT_URI,
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=30,
+        )
+        response.raise_for_status()
+        token_data = response.json()
+        access_token = token_data["access_token"]
+        logger.info("Obtained Lucidchart OAuth2 access token")
+        return access_token
 
     def upload(self, lucid_file: Path, title: str | None = None) -> str:
         """Upload a .lucid file and return the document URL.
@@ -246,15 +405,24 @@ class LucidchartUploader:
         Raises:
             requests.HTTPError: If the upload fails.
         """
+        token = self._get_access_token()
         url = f"{self.base_url}/documents"
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
+            "Authorization": f"Bearer {token}",
             "Lucid-Api-Version": "1",
         }
 
         with open(lucid_file, "rb") as f:
-            files = {"file": (lucid_file.name, f, "application/zip")}
-            data = {}
+            files = {
+                "file": (
+                    lucid_file.name,
+                    f,
+                    "x-application/vnd.lucid.standardImport",
+                ),
+            }
+            data = {
+                "product": "lucidchart",
+            }
             if title:
                 data["title"] = title
 

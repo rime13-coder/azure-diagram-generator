@@ -29,6 +29,8 @@ class Config(BaseModel):
 
     # Lucidchart
     lucidchart_api_key: Optional[str] = None
+    lucidchart_client_id: Optional[str] = None
+    lucidchart_client_secret: Optional[str] = None
     lucidchart_base_url: str = "https://api.lucid.co"
 
     # Output
@@ -69,6 +71,8 @@ class Config(BaseModel):
             subscription_ids=subscription_ids,
             azure_tenant_id=os.getenv("AZURE_TENANT_ID"),
             lucidchart_api_key=os.getenv("LUCIDCHART_API_KEY"),
+            lucidchart_client_id=os.getenv("LUCIDCHART_CLIENT_ID"),
+            lucidchart_client_secret=os.getenv("LUCIDCHART_CLIENT_SECRET"),
             lucidchart_base_url=os.getenv(
                 "LUCIDCHART_BASE_URL", "https://api.lucid.co"
             ),
