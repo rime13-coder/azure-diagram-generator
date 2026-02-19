@@ -1,0 +1,1 @@
+"""Diagram output format renderers."""
