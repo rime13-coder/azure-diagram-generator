@@ -16,7 +16,7 @@ from azure.mgmt.resourcegraph.models import (
     QueryRequestOptions,
     ResultFormat,
 )
-from azure.mgmt.resource import SubscriptionClient
+from azure.mgmt.subscription import SubscriptionClient
 
 from azure_diagrammer.config import Config, ResourceFilter
 

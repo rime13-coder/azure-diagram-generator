@@ -22,6 +22,7 @@ dependencies = [
     "azure-mgmt-sql>=3.0.0",
     "azure-mgmt-storage>=21.0.0",
     "azure-mgmt-monitor>=6.0.0",
+    "azure-mgmt-subscription>=3.0.0",
     "requests>=2.31.0",
     "typer[all]>=0.9.0",
     "rich>=13.0.0",

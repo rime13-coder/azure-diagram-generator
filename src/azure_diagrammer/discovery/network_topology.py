@@ -144,7 +144,7 @@ class NetworkTopologyDiscovery:
 
         subscription_ids = self.config.subscription_ids
         if "all" in subscription_ids:
-            from azure.mgmt.resource import SubscriptionClient
+            from azure.mgmt.subscription import SubscriptionClient
 
             sub_client = SubscriptionClient(self.credential)
             subscription_ids = [
