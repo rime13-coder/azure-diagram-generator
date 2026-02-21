@@ -88,6 +88,9 @@ AZURE_RESOURCE_MAP: dict[str, AzureResourceMeta] = {
         icon_file="app-service-plan.svg",
         fill_color="#0078D4",
         stroke_color="#005A9E",
+        is_container=True,
+        default_width=300.0,
+        default_height=200.0,
     ),
     "microsoft.web/sites/functions": AzureResourceMeta(
         display_name="Function App",

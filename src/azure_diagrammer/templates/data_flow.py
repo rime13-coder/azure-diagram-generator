@@ -11,6 +11,7 @@ from typing import Any
 
 from azure_diagrammer.discovery.data_flow import DataFlow
 from azure_diagrammer.model.azure_types import get_resource_meta
+from azure_diagrammer.templates.display_info import build_display_info, resolve_icon
 from azure_diagrammer.model.graph import (
     DiagramEdge,
     DiagramGroup,
@@ -98,14 +99,23 @@ def build_data_flow_page(
                 if resource:
                     rtype = (resource.get("type") or "").lower()
 
-                meta = get_resource_meta(rtype) if rtype else None
+                display_text = ""
+                if resource:
+                    display_text = build_display_info(
+                        resource, show_sku=True, show_location=True,
+                    )
 
                 node = DiagramNode(
                     id=node_id,
                     name=endpoint,
                     azure_resource_type=rtype,
+                    display_info=display_text,
                     size=Size(w=140, h=60),
                 )
+                if rtype:
+                    icon = resolve_icon(rtype)
+                    if icon:
+                        node.icon_path = icon
                 nodes.append(node)
 
     # Build swim lane groups from endpoints
@@ -137,14 +147,20 @@ def build_data_flow_page(
         dst_node = node_id_map.get(flow.destination)
 
         if src_node and dst_node and src_node != dst_node:
-            # Style based on flow type
+            # Style based on flow type and access/direction
             style = {}
-            if flow.flow_type == "private_link":
+            if hasattr(flow, "access") and flow.access and flow.access.lower() == "deny":
+                style = {"stroke": "#D32F2F", "dash": "3 3"}  # Red dashed for deny
+            elif flow.flow_type == "private_link":
                 style = {"stroke": "#388E3C"}
             elif flow.flow_type == "service_endpoint":
                 style = {"stroke": "#FFA000"}
             elif flow.flow_type == "diagnostic":
                 style = {"stroke": "#7B1FA2", "dash": "5 3"}
+            elif hasattr(flow, "direction") and flow.direction == "Inbound":
+                style = {"stroke": "#1565C0"}  # Dark blue for inbound
+            elif hasattr(flow, "direction") and flow.direction == "Outbound":
+                style = {"stroke": "#00838F"}  # Teal for outbound
             else:
                 style = {"stroke": "#1976D2"}
 

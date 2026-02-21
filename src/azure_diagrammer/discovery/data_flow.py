@@ -25,20 +25,36 @@ class DataFlow:
         port: str = "",
         label: str = "",
         flow_type: str = "network",  # network, private_link, service_endpoint, diagnostic
+        direction: str = "",  # "Inbound" or "Outbound"
+        access: str = "Allow",  # "Allow" or "Deny"
+        priority: int | None = None,
+        source_ip: str = "",
+        destination_ip: str = "",
     ) -> None:
         self.source = source
         self.destination = destination
         self.protocol = protocol
         self.port = port
-        self.label = label or self._build_label()
         self.flow_type = flow_type
+        self.direction = direction
+        self.access = access
+        self.priority = priority
+        self.source_ip = source_ip
+        self.destination_ip = destination_ip
+        self.label = label or self._build_label()
 
     def _build_label(self) -> str:
         parts = []
+        if self.direction:
+            parts.append(f"[{self.direction}]")
+        if self.access and self.access.lower() == "deny":
+            parts.append("DENY")
         if self.protocol and self.protocol != "*":
             parts.append(self.protocol.upper())
         if self.port and self.port != "*":
             parts.append(self.port)
+        if self.priority is not None:
+            parts.append(f"(p:{self.priority})")
         return " ".join(parts) if parts else ""
 
     def __repr__(self) -> str:
@@ -74,38 +90,28 @@ def discover_data_flows(
 
 
 def _flows_from_nsg_rules(nsg_rules: list[dict[str, Any]]) -> list[DataFlow]:
-    """Infer data flows from NSG allow rules.
+    """Infer data flows from NSG rules (both Allow and Deny).
 
-    Only processes Allow rules in the Inbound direction to determine
-    what traffic can reach what destinations.
+    Processes both Allow and Deny rules to show the full security picture.
+    Deny rules are marked with access="Deny" for visual distinction.
     """
     flows = []
 
     for rule in nsg_rules:
         access = (rule.get("access") or "").lower()
         direction = (rule.get("direction") or "").lower()
-
-        # Only process allow rules
-        if access != "allow":
-            continue
-
         source = rule.get("sourceAddressPrefix", "*")
         destination = rule.get("destinationAddressPrefix", "*")
         protocol = rule.get("protocol", "*")
         dest_port = rule.get("destinationPortRange", "*")
         nsg_name = rule.get("nsgName", "")
-        rule_name = rule.get("ruleName", "")
+        priority = rule.get("priority")
 
-        # Skip overly broad rules (*, VirtualNetwork -> VirtualNetwork)
-        if source == "*" and destination == "*":
+        # Skip overly broad wildcard allow rules
+        if source == "*" and destination == "*" and access == "allow":
             continue
 
-        label_parts = []
-        if protocol and protocol != "*":
-            label_parts.append(protocol.upper())
-        if dest_port and dest_port != "*":
-            label_parts.append(str(dest_port))
-        label = " ".join(label_parts)
+        priority_int = int(priority) if priority is not None else None
 
         if direction == "inbound":
             flows.append(
@@ -114,8 +120,12 @@ def _flows_from_nsg_rules(nsg_rules: list[dict[str, Any]]) -> list[DataFlow]:
                     destination=f"{nsg_name} ({destination})",
                     protocol=protocol,
                     port=str(dest_port),
-                    label=label,
                     flow_type="network",
+                    direction="Inbound",
+                    access=access.capitalize(),
+                    priority=priority_int,
+                    source_ip=source,
+                    destination_ip=destination,
                 )
             )
         elif direction == "outbound":
@@ -125,8 +135,12 @@ def _flows_from_nsg_rules(nsg_rules: list[dict[str, Any]]) -> list[DataFlow]:
                     destination=destination,
                     protocol=protocol,
                     port=str(dest_port),
-                    label=label,
                     flow_type="network",
+                    direction="Outbound",
+                    access=access.capitalize(),
+                    priority=priority_int,
+                    source_ip=source,
+                    destination_ip=destination,
                 )
             )
 

@@ -86,6 +86,7 @@ SAMPLE_RESOURCES = [
             "ipConfigurations": [
                 {
                     "properties": {
+                        "privateIPAddress": "10.0.1.4",
                         "subnet": {
                             "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-networking/providers/Microsoft.Network/virtualNetworks/main-vnet/subnets/web-subnet"
                         },
@@ -115,6 +116,7 @@ SAMPLE_RESOURCES = [
             "ipConfigurations": [
                 {
                     "properties": {
+                        "privateIPAddress": "10.0.1.5",
                         "subnet": {
                             "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-networking/providers/Microsoft.Network/virtualNetworks/main-vnet/subnets/web-subnet"
                         },
@@ -157,6 +159,14 @@ SAMPLE_RESOURCES = [
                     "properties": {
                         "addressPrefix": "10.0.2.0/24",
                         "serviceEndpoints": [],
+                        "delegations": [
+                            {
+                                "name": "delegation-pgsql",
+                                "properties": {
+                                    "serviceName": "Microsoft.DBforPostgreSQL/flexibleServers",
+                                },
+                            }
+                        ],
                     },
                 },
             ],
@@ -294,6 +304,13 @@ SAMPLE_RESOURCES = [
         "subscriptionId": "00000000-0000-0000-0000-000000000001",
         "tags": {},
         "properties": {
+            "frontendIPConfigurations": [
+                {
+                    "properties": {
+                        "privateIPAddress": "10.0.1.100",
+                    }
+                }
+            ],
             "backendAddressPools": [
                 {
                     "properties": {
@@ -312,6 +329,19 @@ SAMPLE_RESOURCES = [
         "sku": {"name": "Standard"},
         "kind": None,
     },
+    # Public IP
+    {
+        "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-production/providers/Microsoft.Network/publicIPAddresses/web-vm-01-pip",
+        "name": "web-vm-01-pip",
+        "type": "microsoft.network/publicipaddresses",
+        "location": "eastus",
+        "resourceGroup": "rg-production",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "tags": {},
+        "properties": {"ipAddress": "20.185.100.42", "publicIPAllocationMethod": "Static"},
+        "sku": {"name": "Standard"},
+        "kind": None,
+    },
     # Key Vault
     {
         "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-production/providers/Microsoft.KeyVault/vaults/prod-keyvault",
@@ -325,6 +355,78 @@ SAMPLE_RESOURCES = [
         "sku": {"name": "standard"},
         "kind": None,
     },
+    # Route Table
+    {
+        "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-networking/providers/Microsoft.Network/routeTables/web-rt",
+        "name": "web-rt",
+        "type": "microsoft.network/routetables",
+        "location": "eastus",
+        "resourceGroup": "rg-networking",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "tags": {},
+        "properties": {
+            "subnets": [
+                {
+                    "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-networking/providers/Microsoft.Network/virtualNetworks/main-vnet/subnets/web-subnet"
+                }
+            ],
+            "routes": [
+                {
+                    "name": "to-firewall",
+                    "properties": {
+                        "addressPrefix": "0.0.0.0/0",
+                        "nextHopType": "VirtualAppliance",
+                        "nextHopIpAddress": "10.0.3.4",
+                    },
+                }
+            ],
+        },
+        "sku": None,
+        "kind": None,
+    },
+    # App Service Plan
+    {
+        "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-production/providers/Microsoft.Web/serverFarms/prod-asp",
+        "name": "prod-asp",
+        "type": "microsoft.web/serverfarms",
+        "location": "eastus",
+        "resourceGroup": "rg-production",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "tags": {},
+        "properties": {},
+        "sku": {"name": "P1v3", "tier": "PremiumV3", "capacity": 2},
+        "kind": "linux",
+    },
+    # Web App 1 (hosted on prod-asp)
+    {
+        "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-production/providers/Microsoft.Web/sites/frontend-app",
+        "name": "frontend-app",
+        "type": "microsoft.web/sites",
+        "location": "eastus",
+        "resourceGroup": "rg-production",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "tags": {"role": "frontend"},
+        "properties": {
+            "serverFarmId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-production/providers/Microsoft.Web/serverFarms/prod-asp",
+        },
+        "sku": None,
+        "kind": "app",
+    },
+    # Web App 2 (hosted on prod-asp)
+    {
+        "id": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-production/providers/Microsoft.Web/sites/api-app",
+        "name": "api-app",
+        "type": "microsoft.web/sites",
+        "location": "eastus",
+        "resourceGroup": "rg-production",
+        "subscriptionId": "00000000-0000-0000-0000-000000000001",
+        "tags": {"role": "api"},
+        "properties": {
+            "serverFarmId": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-production/providers/Microsoft.Web/serverFarms/prod-asp",
+        },
+        "sku": None,
+        "kind": "app",
+    },
 ]
 
 SAMPLE_NETWORK_RESOURCES = {
@@ -332,12 +434,12 @@ SAMPLE_NETWORK_RESOURCES = {
     "subnets": [],
     "nsgs": [SAMPLE_RESOURCES[7]],  # web-nsg
     "nics": [SAMPLE_RESOURCES[2], SAMPLE_RESOURCES[3]],  # NICs
-    "public_ips": [],
+    "public_ips": [SAMPLE_RESOURCES[10]],  # web-vm-01-pip
     "load_balancers": [SAMPLE_RESOURCES[9]],  # web-lb
     "app_gateways": [],
     "firewalls": [],
     "private_endpoints": [SAMPLE_RESOURCES[6]],  # sql-pe
-    "route_tables": [],
+    "route_tables": [SAMPLE_RESOURCES[12]],  # web-rt
     "vnet_gateways": [],
     "peerings": [
         {

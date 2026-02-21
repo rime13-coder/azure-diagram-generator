@@ -33,6 +33,7 @@ class DiagramType(str, Enum):
     NETWORK = "network"
     APP = "app"
     DATAFLOW = "dataflow"
+    SECURITY = "security"
     ALL = "all"
 
 
@@ -274,6 +275,11 @@ def run(
                 "port": f.port,
                 "label": f.label,
                 "flow_type": f.flow_type,
+                "direction": f.direction,
+                "access": f.access,
+                "priority": f.priority,
+                "source_ip": f.source_ip,
+                "destination_ip": f.destination_ip,
             }
             for f in data_flows
         ],
@@ -300,6 +306,14 @@ def _generate_diagrams(
     config: Config,
 ) -> None:
     """Core diagram generation logic shared by generate and run commands."""
+    from azure_diagrammer.icons import icons_available
+
+    if not icons_available():
+        console.print(
+            "[yellow]Azure icons not found. Run 'azure-diagrammer download-icons' "
+            "for icon support.[/yellow]"
+        )
+
     from azure_diagrammer.discovery.data_flow import DataFlow
     from azure_diagrammer.discovery.relationships import ResourceRelationship
     from azure_diagrammer.model.graph import ArchitectureGraph
@@ -307,6 +321,7 @@ def _generate_diagrams(
     from azure_diagrammer.templates.network import build_network_page
     from azure_diagrammer.templates.application import build_application_page
     from azure_diagrammer.templates.data_flow import build_data_flow_page
+    from azure_diagrammer.templates.security import build_security_page
 
     # Reconstruct relationships from serialized data
     relationships = [
@@ -328,6 +343,11 @@ def _generate_diagrams(
             port=f.get("port", ""),
             label=f.get("label", ""),
             flow_type=f.get("flow_type", "network"),
+            direction=f.get("direction", ""),
+            access=f.get("access", "Allow"),
+            priority=f.get("priority"),
+            source_ip=f.get("source_ip", ""),
+            destination_ip=f.get("destination_ip", ""),
         )
         for f in discovery_data.get("data_flows", [])
     ]
@@ -335,7 +355,7 @@ def _generate_diagrams(
     graph = ArchitectureGraph(project_name=project_name)
 
     types_to_generate = (
-        [DiagramType.HIGH_LEVEL, DiagramType.NETWORK, DiagramType.APP, DiagramType.DATAFLOW]
+        [DiagramType.HIGH_LEVEL, DiagramType.NETWORK, DiagramType.APP, DiagramType.DATAFLOW, DiagramType.SECURITY]
         if diagram_type == DiagramType.ALL
         else [diagram_type]
     )
@@ -353,6 +373,7 @@ def _generate_diagrams(
                 page = build_network_page(
                     discovery_data.get("network_resources", {}),
                     relationships,
+                    all_resources=discovery_data.get("resources", []),
                 )
                 graph.add_page(page)
             elif dtype == DiagramType.APP:
@@ -365,6 +386,14 @@ def _generate_diagrams(
                 page = build_data_flow_page(
                     data_flows,
                     discovery_data.get("resources", []),
+                )
+                graph.add_page(page)
+            elif dtype == DiagramType.SECURITY:
+                page = build_security_page(
+                    discovery_data.get("resources", []),
+                    discovery_data.get("network_resources", {}),
+                    relationships,
+                    discovery_data.get("nsg_rules", []),
                 )
                 graph.add_page(page)
         except Exception as exc:
@@ -419,6 +448,18 @@ def _upload_to_lucidchart(file_path: Path, title: str, config: Config) -> None:
         console.print(f"[green]Uploaded to Lucidchart: {doc_url}[/green]")
     except Exception as exc:
         console.print(f"[red]Failed to upload to Lucidchart: {exc}[/red]")
+
+
+@app.command()
+def download_icons(
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Download official Microsoft Azure Architecture Icons."""
+    _setup_logging(verbose)
+    from azure_diagrammer.icons.download_icons import download_and_extract_icons
+
+    count = download_and_extract_icons()
+    console.print(f"[green]Downloaded {count} Azure icons.[/green]")
 
 
 if __name__ == "__main__":

@@ -24,6 +24,8 @@ from azure_diagrammer.model.graph import (
     DiagramGroup,
     DiagramNode,
     DiagramPage,
+    EdgeType,
+    GroupType,
 )
 from azure_diagrammer.renderers.base import BaseRenderer
 
@@ -95,9 +97,9 @@ class LucidchartRenderer(BaseRenderer):
         for group in page.groups:
             containers.append(self._group_to_shape(group, id_map))
 
-        # Render nodes as shapes
+        # Render nodes as shapes (may produce multiple shapes per node for icon+label)
         for node in page.nodes:
-            shapes.append(self._node_to_shape(node, id_map))
+            shapes.extend(self._node_to_shapes(node, id_map))
 
         # Render edges as lines
         for edge in page.edges:
@@ -110,45 +112,96 @@ class LucidchartRenderer(BaseRenderer):
             "lines": lines,
         }
 
-    def _node_to_shape(
+    def _node_to_shapes(
         self, node: DiagramNode, id_map: dict[str, str]
-    ) -> dict[str, Any]:
-        """Convert a DiagramNode to a Lucidchart shape."""
+    ) -> list[dict[str, Any]]:
+        """Convert a DiagramNode to Lucidchart shapes.
+
+        If the node has an icon, produces an image shape + text label.
+        Otherwise, produces a single rectangle shape.
+        """
         meta = get_resource_meta(node.azure_resource_type)
+        node_id = id_map.get(node.id, _sanitize_id(node.id))
 
         text = node.name
         if node.display_info:
             text += f"\n{node.display_info}"
 
-        fill_color = node.style.get("fill", meta.fill_color)
-        stroke_color = node.style.get("stroke", meta.stroke_color)
-
-        shape: dict[str, Any] = {
-            "id": id_map.get(node.id, _sanitize_id(node.id)),
-            "type": "rectangle",
-            "boundingBox": {
-                "x": node.position.x,
-                "y": node.position.y,
-                "w": node.size.w,
-                "h": node.size.h,
-            },
-            "text": text,
-            "style": {
-                "fill": {"type": "color", "color": fill_color},
-                "stroke": {"color": stroke_color, "width": 1, "style": "solid"},
-                "rounding": 4,
-            },
-            "customData": [
-                {"key": "resourceId", "value": node.azure_resource_id},
-                {"key": "resourceType", "value": node.azure_resource_type},
-            ],
-        }
-
-        # Set parent container if grouped
+        parent_id = None
         if node.group_id:
-            shape["containedBy"] = id_map.get(node.group_id, _sanitize_id(node.group_id))
+            parent_id = id_map.get(node.group_id, _sanitize_id(node.group_id))
 
-        return shape
+        if node.icon_path:
+            icon_filename = Path(node.icon_path).name
+            icon_w, icon_h = 48, 48
+            label_h = max(30, 16 * text.count("\n") + 20)
+
+            # Icon image shape
+            icon_shape: dict[str, Any] = {
+                "id": _sanitize_id(f"{node_id}_icon"),
+                "type": "image",
+                "boundingBox": {
+                    "x": node.position.x + (node.size.w - icon_w) / 2,
+                    "y": node.position.y,
+                    "w": icon_w,
+                    "h": icon_h,
+                },
+                "style": {
+                    "fill": {"type": "image", "ref": icon_filename},
+                },
+            }
+            if parent_id:
+                icon_shape["containedBy"] = parent_id
+
+            # Text label below icon
+            label_shape: dict[str, Any] = {
+                "id": node_id,
+                "type": "text",
+                "boundingBox": {
+                    "x": node.position.x,
+                    "y": node.position.y + icon_h + 4,
+                    "w": node.size.w,
+                    "h": label_h,
+                },
+                "text": text,
+                "customData": [
+                    {"key": "resourceId", "value": node.azure_resource_id},
+                    {"key": "resourceType", "value": node.azure_resource_type},
+                ],
+            }
+            if parent_id:
+                label_shape["containedBy"] = parent_id
+
+            return [icon_shape, label_shape]
+        else:
+            # Fallback to rectangle
+            fill_color = node.style.get("fill", meta.fill_color)
+            stroke_color = node.style.get("stroke", meta.stroke_color)
+
+            shape: dict[str, Any] = {
+                "id": node_id,
+                "type": "rectangle",
+                "boundingBox": {
+                    "x": node.position.x,
+                    "y": node.position.y,
+                    "w": node.size.w,
+                    "h": node.size.h,
+                },
+                "text": text,
+                "style": {
+                    "fill": {"type": "color", "color": fill_color},
+                    "stroke": {"color": stroke_color, "width": 1, "style": "solid"},
+                    "rounding": 4,
+                },
+                "customData": [
+                    {"key": "resourceId", "value": node.azure_resource_id},
+                    {"key": "resourceType", "value": node.azure_resource_type},
+                ],
+            }
+            if parent_id:
+                shape["containedBy"] = parent_id
+
+            return [shape]
 
     def _group_to_shape(
         self, group: DiagramGroup, id_map: dict[str, str]
@@ -164,6 +217,19 @@ class LucidchartRenderer(BaseRenderer):
         else:
             dash_style = "solid"
 
+        # GroupType-aware styling defaults
+        stroke_width = 1
+        if group.group_type == GroupType.VNET:
+            stroke_width = 2
+            dash_style = "solid"
+        elif group.group_type == GroupType.SUBNET:
+            dash_style = "dashed"
+        elif group.group_type == GroupType.APP_SERVICE_PLAN:
+            stroke_width = 2
+            dash_style = "solid"
+        elif group.group_type == GroupType.LOGICAL_TIER:
+            dash_style = "dashed"
+
         shape: dict[str, Any] = {
             "id": id_map.get(group.id, _sanitize_id(group.id)),
             "type": "roundedRectangleContainer",
@@ -176,7 +242,7 @@ class LucidchartRenderer(BaseRenderer):
             "text": group.name,
             "style": {
                 "fill": {"type": "color", "color": fill_color},
-                "stroke": {"color": stroke_color, "width": 1, "style": dash_style},
+                "stroke": {"color": stroke_color, "width": stroke_width, "style": dash_style},
                 "rounding": 8,
             },
             "customData": [
@@ -196,10 +262,15 @@ class LucidchartRenderer(BaseRenderer):
         self, edge: DiagramEdge, id_map: dict[str, str]
     ) -> dict[str, Any]:
         """Convert a DiagramEdge to a Lucidchart line."""
-        end_style = "none" if edge.bidirectional else "arrow"
-        start_style = "arrow" if edge.bidirectional else "none"
+        if edge.bidirectional:
+            start_style = "arrow"
+            end_style = "arrow"
+        else:
+            start_style = "none"
+            end_style = "arrow"
 
         stroke_color = edge.style.get("stroke", "#666666")
+        stroke_width = 1
         raw_dash = edge.style.get("dash", "solid")
         # Normalize to valid Lucidchart values: solid, dashed, dotted
         if raw_dash in ("solid", "dashed", "dotted"):
@@ -208,6 +279,11 @@ class LucidchartRenderer(BaseRenderer):
             dash = "dashed"
         else:
             dash = "solid"
+
+        # Edge type styling
+        if edge.edge_type == EdgeType.PEERING:
+            stroke_width = 2
+            dash = "dashed"
 
         line: dict[str, Any] = {
             "id": id_map.get(edge.id, _sanitize_id(edge.id)),
@@ -226,7 +302,7 @@ class LucidchartRenderer(BaseRenderer):
             },
             "stroke": {
                 "color": stroke_color,
-                "width": 1,
+                "width": stroke_width,
                 "style": dash,
             },
         }

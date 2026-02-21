@@ -145,12 +145,15 @@ class TestDataFlowDiscovery:
         http_flows = [f for f in nsg_flows if "80" in f.port]
         assert len(http_flows) >= 1
 
-    def test_deny_rules_not_included(self):
-        """NSG deny rules should not generate data flows."""
+    def test_deny_rules_included_with_deny_access(self):
+        """NSG deny rules should generate data flows with access='Deny'."""
         rels = build_relationship_graph(SAMPLE_RESOURCES)
         flows = discover_data_flows(SAMPLE_RESOURCES, rels, SAMPLE_NSG_RULES)
-        deny_flows = [f for f in flows if "DenyAll" in f.label]
-        assert len(deny_flows) == 0
+        deny_flows = [f for f in flows if f.access == "Deny"]
+        assert len(deny_flows) >= 1
+        # Deny flows should have DENY in their label
+        for df in deny_flows:
+            assert "DENY" in df.label
 
     def test_private_endpoint_flows(self):
         """Private endpoints should generate private_link flows."""

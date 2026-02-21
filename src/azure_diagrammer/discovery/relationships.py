@@ -110,6 +110,9 @@ def build_relationship_graph(
         elif rtype == "microsoft.network/privateendpoints":
             relationships.update(_infer_pe_relationships(rid, props))
 
+        elif rtype == "microsoft.network/routetables":
+            relationships.update(_infer_route_table_relationships(rid, props))
+
         elif rtype == "microsoft.web/sites":
             relationships.update(_infer_app_service_relationships(rid, props))
 
@@ -299,6 +302,23 @@ def _infer_pe_relationships(
             ResourceRelationship(pe_id, subnet_id, "in_subnet", "PE Subnet")
         )
 
+    return rels
+
+
+def _infer_route_table_relationships(
+    rt_id: str, props: dict
+) -> list[ResourceRelationship]:
+    """Route Table -> Subnets it is associated with."""
+    rels = []
+    subnets = _safe_get(props, "subnets", default=[])
+    for subnet_ref in subnets:
+        subnet_id = _extract_id(subnet_ref)
+        if subnet_id:
+            rels.append(
+                ResourceRelationship(
+                    rt_id, subnet_id, "routes_for", "Route Table"
+                )
+            )
     return rels
 
 

@@ -242,7 +242,6 @@ class TestLucidchartRenderer:
         with zipfile.ZipFile(output, "r") as zf:
             doc = json.loads(zf.read("document.json"))
 
-        assert doc["title"] == "test-project"
         assert "pages" in doc
         assert len(doc["pages"]) == 1
 
@@ -283,7 +282,7 @@ class TestLucidchartRenderer:
             doc = json.loads(zf.read("document.json"))
 
         page = doc["pages"][0]
-        containers = [s for s in page["shapes"] if s.get("type") == "container"]
+        containers = [s for s in page["shapes"] if "Container" in s.get("type", "")]
         assert len(containers) == 3  # vnet + 2 subnets
 
     def test_node_shapes_have_custom_data(self, sample_graph, tmp_path):

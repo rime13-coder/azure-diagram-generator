@@ -32,6 +32,7 @@ class GroupType(str, Enum):
     SUBNET = "subnet"
     REGION = "region"
     LOGICAL_TIER = "logical_tier"
+    APP_SERVICE_PLAN = "app_service_plan"
 
 
 class Position(BaseModel):

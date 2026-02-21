@@ -83,7 +83,7 @@ def build_high_level_page(
 
         rg_group = DiagramGroup(
             id=f"rg-{rg_name}",
-            name=f"RG: {rg_name}",
+            name=f"RG: {rg_name} ({rg_location})" if rg_location else f"RG: {rg_name}",
             group_type=GroupType.RESOURCE_GROUP,
             parent_id=f"sub-{sub_id[:8]}" if sub_id else None,
             style={"fill": "#E8F4FD", "stroke": "#0078D4"},
