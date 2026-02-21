@@ -246,7 +246,7 @@ class TestEdgeTypeStyling:
             doc = json.loads(zf.read("document.json"))
 
         lines = doc["pages"][0]["lines"]
-        peering_line = next((l for l in lines if l["id"] == "e1"), None)
+        peering_line = next((l for l in lines if "e1" in l["id"]), None)
         assert peering_line is not None
         assert peering_line["stroke"]["width"] == 2
         assert peering_line["stroke"]["style"] == "dashed"
@@ -258,7 +258,7 @@ class TestEdgeTypeStyling:
             doc = json.loads(zf.read("document.json"))
 
         lines = doc["pages"][0]["lines"]
-        peering_line = next((l for l in lines if l["id"] == "e1"), None)
+        peering_line = next((l for l in lines if "e1" in l["id"]), None)
         assert peering_line is not None
         assert peering_line["endpoint1"]["style"] == "arrow"
         assert peering_line["endpoint2"]["style"] == "arrow"
@@ -270,6 +270,6 @@ class TestEdgeTypeStyling:
             doc = json.loads(zf.read("document.json"))
 
         lines = doc["pages"][0]["lines"]
-        flow_line = next((l for l in lines if l["id"] == "e2"), None)
+        flow_line = next((l for l in lines if "e2" in l["id"]), None)
         assert flow_line is not None
         assert flow_line["stroke"]["width"] == 1

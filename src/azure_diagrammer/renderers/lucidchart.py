@@ -90,26 +90,55 @@ class LucidchartRenderer(BaseRenderer):
         lines = []
         containers = []
 
-        # Build a mapping from original IDs to sanitized IDs
-        id_map: dict[str, str] = {}
+        # Prefix all IDs with page ID to ensure global uniqueness across pages
+        prefix = f"{page.id}_"
+
+        # Build a mapping from original IDs to sanitized IDs.
+        # Use id(obj) as key to handle duplicate .id values across subscriptions.
+        # Also keep a name-based map for cross-references (group_id, source_id, etc.)
+        obj_id_map: dict[int, str] = {}  # id(obj) -> sanitized ID
+        id_map: dict[str, str] = {}  # first-wins name -> sanitized ID (for refs)
+        used_ids: set[str] = set()
+
+        def _unique_id(raw_id: str) -> str:
+            candidate = _sanitize_id(f"{prefix}{raw_id}")
+            if candidate not in used_ids:
+                used_ids.add(candidate)
+                return candidate
+            for i in range(2, 100):
+                alt = _sanitize_id(f"{prefix}{raw_id}_{i}")
+                if alt not in used_ids:
+                    used_ids.add(alt)
+                    return alt
+            return candidate
+
         for group in page.groups:
-            id_map[group.id] = _sanitize_id(group.id)
+            uid = _unique_id(group.id)
+            obj_id_map[id(group)] = uid
+            if group.id not in id_map:
+                id_map[group.id] = uid
         for node in page.nodes:
-            id_map[node.id] = _sanitize_id(node.id)
+            uid = _unique_id(node.id)
+            obj_id_map[id(node)] = uid
+            if node.id not in id_map:
+                id_map[node.id] = uid
         for edge in page.edges:
-            id_map[edge.id] = _sanitize_id(edge.id)
+            uid = _unique_id(edge.id)
+            obj_id_map[id(edge)] = uid
+            if edge.id not in id_map:
+                id_map[edge.id] = uid
 
         # Render groups as container shapes
         for group in page.groups:
-            containers.append(self._group_to_shape(group, id_map))
+            containers.append(self._group_to_shape(group, id_map, obj_id_map))
 
         # Render nodes as shapes (may produce multiple shapes per node for icon+label)
         for node in page.nodes:
-            shapes.extend(self._node_to_shapes(node, id_map))
+            shapes.extend(self._node_to_shapes(node, id_map, obj_id_map))
 
         # Render edges as lines
         for edge in page.edges:
-            lines.append(self._edge_to_line(edge, id_map))
+            lines.append(self._edge_to_line(edge, id_map, obj_id_map))
 
         return {
             "id": _sanitize_id(page.id),
@@ -119,7 +148,10 @@ class LucidchartRenderer(BaseRenderer):
         }
 
     def _node_to_shapes(
-        self, node: DiagramNode, id_map: dict[str, str]
+        self,
+        node: DiagramNode,
+        id_map: dict[str, str],
+        obj_id_map: dict[int, str] | None = None,
     ) -> list[dict[str, Any]]:
         """Convert a DiagramNode to Lucidchart shapes.
 
@@ -127,7 +159,7 @@ class LucidchartRenderer(BaseRenderer):
         Otherwise, produces a single rectangle shape.
         """
         meta = get_resource_meta(node.azure_resource_type)
-        node_id = id_map.get(node.id, _sanitize_id(node.id))
+        node_id = (obj_id_map or {}).get(id(node)) or id_map.get(node.id, _sanitize_id(node.id))
 
         text = node.name
         if node.display_info:
@@ -209,7 +241,10 @@ class LucidchartRenderer(BaseRenderer):
             return [shape]
 
     def _group_to_shape(
-        self, group: DiagramGroup, id_map: dict[str, str]
+        self,
+        group: DiagramGroup,
+        id_map: dict[str, str],
+        obj_id_map: dict[int, str] | None = None,
     ) -> dict[str, Any]:
         """Convert a DiagramGroup to a Lucidchart container shape."""
         fill_color = group.style.get("fill", "#F5F5F5")
@@ -221,7 +256,7 @@ class LucidchartRenderer(BaseRenderer):
             stroke_width = 2
 
         shape: dict[str, Any] = {
-            "id": id_map.get(group.id, _sanitize_id(group.id)),
+            "id": (obj_id_map or {}).get(id(group)) or id_map.get(group.id, _sanitize_id(group.id)),
             "type": "roundedRectangleContainer",
             "boundingBox": {
                 "x": group.bounding_box.x,
@@ -250,7 +285,10 @@ class LucidchartRenderer(BaseRenderer):
         return shape
 
     def _edge_to_line(
-        self, edge: DiagramEdge, id_map: dict[str, str]
+        self,
+        edge: DiagramEdge,
+        id_map: dict[str, str],
+        obj_id_map: dict[int, str] | None = None,
     ) -> dict[str, Any]:
         """Convert a DiagramEdge to a Lucidchart line."""
         if edge.bidirectional:
@@ -277,7 +315,7 @@ class LucidchartRenderer(BaseRenderer):
             dash = "dashed"
 
         line: dict[str, Any] = {
-            "id": id_map.get(edge.id, _sanitize_id(edge.id)),
+            "id": (obj_id_map or {}).get(id(edge)) or id_map.get(edge.id, _sanitize_id(edge.id)),
             "lineType": "elbow",
             "endpoint1": {
                 "type": "shapeEndpoint",
