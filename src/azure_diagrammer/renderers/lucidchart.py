@@ -36,8 +36,14 @@ _SAFE_ID_TABLE = str.maketrans({"/": "_", " ": "_", ":": "_", "(": "", ")": ""})
 
 def _sanitize_id(raw_id: str) -> str:
     """Ensure ID is valid for Lucidchart (alphanumeric + -_.~ , max 36 chars)."""
+    import hashlib
+
     clean = raw_id.translate(_SAFE_ID_TABLE)
-    return clean[:36]
+    if len(clean) <= 36:
+        return clean
+    # Truncate to 29 chars + 7-char hash suffix for uniqueness
+    h = hashlib.md5(clean.encode()).hexdigest()[:7]
+    return f"{clean[:28]}_{h}"
 
 
 class LucidchartRenderer(BaseRenderer):
@@ -136,19 +142,18 @@ class LucidchartRenderer(BaseRenderer):
             icon_w, icon_h = 48, 48
             label_h = max(30, 16 * text.count("\n") + 20)
 
-            # Icon image shape
+            # Icon as rectangle with image fill
             icon_shape: dict[str, Any] = {
                 "id": _sanitize_id(f"{node_id}_icon"),
-                "type": "image",
+                "type": "rectangle",
                 "boundingBox": {
                     "x": node.position.x + (node.size.w - icon_w) / 2,
                     "y": node.position.y,
                     "w": icon_w,
                     "h": icon_h,
                 },
-                "style": {
-                    "fill": {"type": "image", "ref": icon_filename},
-                },
+                "style": {"strokeWidth": 0},
+                "fill": {"type": "image", "ref": icon_filename},
             }
             if parent_id:
                 icon_shape["containedBy"] = parent_id
@@ -189,9 +194,9 @@ class LucidchartRenderer(BaseRenderer):
                 },
                 "text": text,
                 "style": {
-                    "fill": {"type": "color", "color": fill_color},
-                    "stroke": {"color": stroke_color, "width": 1, "style": "solid"},
-                    "rounding": 4,
+                    "fillColor": fill_color,
+                    "strokeColor": stroke_color,
+                    "strokeWidth": 1,
                 },
                 "customData": [
                     {"key": "resourceId", "value": node.azure_resource_id},
@@ -209,26 +214,11 @@ class LucidchartRenderer(BaseRenderer):
         """Convert a DiagramGroup to a Lucidchart container shape."""
         fill_color = group.style.get("fill", "#F5F5F5")
         stroke_color = group.style.get("stroke", "#CCCCCC")
-        raw_dash = group.style.get("dash", "solid")
-        if raw_dash in ("solid", "dashed", "dotted"):
-            dash_style = raw_dash
-        elif raw_dash and raw_dash != "none":
-            dash_style = "dashed"
-        else:
-            dash_style = "solid"
 
         # GroupType-aware styling defaults
         stroke_width = 1
-        if group.group_type == GroupType.VNET:
+        if group.group_type in (GroupType.VNET, GroupType.APP_SERVICE_PLAN):
             stroke_width = 2
-            dash_style = "solid"
-        elif group.group_type == GroupType.SUBNET:
-            dash_style = "dashed"
-        elif group.group_type == GroupType.APP_SERVICE_PLAN:
-            stroke_width = 2
-            dash_style = "solid"
-        elif group.group_type == GroupType.LOGICAL_TIER:
-            dash_style = "dashed"
 
         shape: dict[str, Any] = {
             "id": id_map.get(group.id, _sanitize_id(group.id)),
@@ -241,9 +231,10 @@ class LucidchartRenderer(BaseRenderer):
             },
             "text": group.name,
             "style": {
-                "fill": {"type": "color", "color": fill_color},
-                "stroke": {"color": stroke_color, "width": stroke_width, "style": dash_style},
-                "rounding": 8,
+                "fillColor": fill_color,
+                "strokeColor": stroke_color,
+                "strokeWidth": stroke_width,
+                "cornerRadius": 8,
             },
             "customData": [
                 {"key": "resourceId", "value": group.azure_resource_id},

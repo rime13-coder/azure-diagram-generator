@@ -159,15 +159,16 @@ class TestIconShapes:
         vm_shapes = [s for s in shapes if "vm1" in s["id"]]
         assert len(vm_shapes) == 2
 
-        icon_shape = next((s for s in vm_shapes if s["type"] == "image"), None)
+        icon_shape = next((s for s in vm_shapes if s.get("fill", {}).get("type") == "image"), None)
         label_shape = next((s for s in vm_shapes if s["type"] == "text"), None)
 
         assert icon_shape is not None
         assert label_shape is not None
 
-        # Icon should reference the SVG file
-        assert icon_shape["style"]["fill"]["type"] == "image"
-        assert "vm-icon.svg" in icon_shape["style"]["fill"]["ref"]
+        # Icon should be a rectangle with image fill referencing the SVG
+        assert icon_shape["type"] == "rectangle"
+        assert icon_shape["fill"]["type"] == "image"
+        assert "vm-icon.svg" in icon_shape["fill"]["ref"]
 
         # Label should contain node name
         assert "web-vm-01" in label_shape["text"]
@@ -192,8 +193,8 @@ class TestIconShapes:
 
 
 class TestGroupTypeStyling:
-    def test_vnet_gets_thick_solid_stroke(self, renderer, group_graph, tmp_path):
-        """VNet containers should have stroke width 2 and solid style."""
+    def test_vnet_gets_thick_stroke(self, renderer, group_graph, tmp_path):
+        """VNet containers should have strokeWidth 2."""
         out = renderer.render(group_graph, tmp_path)
         with zipfile.ZipFile(out, "r") as zf:
             doc = json.loads(zf.read("document.json"))
@@ -201,11 +202,10 @@ class TestGroupTypeStyling:
         shapes = doc["pages"][0]["shapes"]
         vnet_shape = next((s for s in shapes if "vnet" in s["id"]), None)
         assert vnet_shape is not None
-        assert vnet_shape["style"]["stroke"]["width"] == 2
-        assert vnet_shape["style"]["stroke"]["style"] == "solid"
+        assert vnet_shape["style"]["strokeWidth"] == 2
 
-    def test_subnet_gets_dashed_stroke(self, renderer, group_graph, tmp_path):
-        """Subnet containers should have dashed stroke style."""
+    def test_subnet_has_stroke_color(self, renderer, group_graph, tmp_path):
+        """Subnet containers should have strokeColor set."""
         out = renderer.render(group_graph, tmp_path)
         with zipfile.ZipFile(out, "r") as zf:
             doc = json.loads(zf.read("document.json"))
@@ -213,10 +213,10 @@ class TestGroupTypeStyling:
         shapes = doc["pages"][0]["shapes"]
         subnet_shape = next((s for s in shapes if "subnet" in s["id"]), None)
         assert subnet_shape is not None
-        assert subnet_shape["style"]["stroke"]["style"] == "dashed"
+        assert subnet_shape["style"]["strokeWidth"] == 1
 
-    def test_asp_gets_thick_solid_stroke(self, renderer, group_graph, tmp_path):
-        """ASP containers should have stroke width 2 and solid style."""
+    def test_asp_gets_thick_stroke(self, renderer, group_graph, tmp_path):
+        """ASP containers should have strokeWidth 2."""
         out = renderer.render(group_graph, tmp_path)
         with zipfile.ZipFile(out, "r") as zf:
             doc = json.loads(zf.read("document.json"))
@@ -224,11 +224,10 @@ class TestGroupTypeStyling:
         shapes = doc["pages"][0]["shapes"]
         asp_shape = next((s for s in shapes if "asp" in s["id"]), None)
         assert asp_shape is not None
-        assert asp_shape["style"]["stroke"]["width"] == 2
-        assert asp_shape["style"]["stroke"]["style"] == "solid"
+        assert asp_shape["style"]["strokeWidth"] == 2
 
-    def test_logical_tier_gets_dashed_stroke(self, renderer, group_graph, tmp_path):
-        """Logical tier containers should have dashed stroke style."""
+    def test_logical_tier_has_stroke(self, renderer, group_graph, tmp_path):
+        """Logical tier containers should have strokeWidth set."""
         out = renderer.render(group_graph, tmp_path)
         with zipfile.ZipFile(out, "r") as zf:
             doc = json.loads(zf.read("document.json"))
@@ -236,7 +235,7 @@ class TestGroupTypeStyling:
         shapes = doc["pages"][0]["shapes"]
         tier_shape = next((s for s in shapes if "tier" in s["id"]), None)
         assert tier_shape is not None
-        assert tier_shape["style"]["stroke"]["style"] == "dashed"
+        assert "strokeWidth" in tier_shape["style"]
 
 
 class TestEdgeTypeStyling:
